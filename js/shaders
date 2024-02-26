@@ -1,0 +1,86 @@
+ITEM.SHADER = {
+    vertex: '\
+		uniform vec3 color;\
+		uniform vec3 clippingPlaneNormal;\
+        uniform float clippingPlaneDistance;\
+		uniform vec3 clippingPlanePosition;\
+		varying vec3 pixelNormal;\
+		varying vec4 worldPosition;\
+		varying vec4 modelPosition;\
+		varying vec3 v_ClipPlaneNormal;\
+		varying vec4 v_PlanePosition;\
+		\
+		void main() {\
+			\
+			pixelNormal = normal;\
+			v_ClipPlaneNormal = (mat3(modelViewMatrix) * clippingPlaneNormal);\
+			v_PlanePosition = modelViewMatrix * vec4(clippingPlanePosition, 1.0);\
+			worldPosition = modelViewMatrix * vec4(position, 1.0);\
+			modelPosition = vec4(position, 1.0);\
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );\
+			\
+		}',
+
+        fragment: '\
+		uniform vec3 color;\
+		uniform vec3 clippingPlaneNormal;\
+        uniform float clippingPlaneDistance;\
+		uniform vec3 clippingPlanePosition;\
+		varying vec3 pixelNormal;\
+		varying vec4 worldPosition;\
+		varying vec4 modelPosition;\
+		varying vec3 v_ClipPlaneNormal;\
+		varying vec4 v_PlanePosition;\
+		\
+		void main( void ) {\
+			\
+			float shade = (\
+				  3.0 * pow ( abs ( pixelNormal.y ), 2.0 )\
+				+ 2.0 * pow ( abs ( pixelNormal.z ), 2.0 )\
+				+ 1.0 * pow ( abs ( pixelNormal.x ), 2.0 )\
+			) / 3.0;\
+			\
+			float distanceToPlane = dot(worldPosition.xyz - v_PlanePosition.xyz, v_ClipPlaneNormal) - clippingPlaneDistance;\
+    		if (distanceToPlane < 0.0) {\
+    		    discard;\
+    		}\
+			else\
+			{\
+				vec3 color1 = color;\
+				float rest = mod(modelPosition.y*10.0, 2.0);\
+				if(rest - 1.0 < 0.001)\
+					color1.g = 1.0;\
+				else\
+					color1.b = 1.0;\
+				gl_FragColor =  vec4( color1 * shade, 1.0 );\
+			}\
+		}',
+
+		vertexClipping: '\
+		uniform vec3 color;\
+		\
+		varying vec3 pixelNormal;\
+		\
+		void main() {\
+			\
+			pixelNormal = normal;\
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );\
+			\
+		}',
+
+		fragmentClipping: '\
+		uniform vec3 color;\
+		varying vec3 pixelNormal;\
+		\
+		void main( void ) {\
+			\
+			float shade = (\
+				  3.0 * pow ( abs ( pixelNormal.y ), 2.0 )\
+				+ 2.0 * pow ( abs ( pixelNormal.z ), 2.0 )\
+				+ 1.0 * pow ( abs ( pixelNormal.x ), 2.0 )\
+			) / 3.0;\
+			\
+			gl_FragColor =  vec4( color * shade, 1.0 );\
+			\
+		}',
+}

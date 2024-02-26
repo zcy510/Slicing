@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        html,
+        body {
+            margin: 0;
+            background-color: rgb(199, 111, 111);
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    <script src = "lib/three83dev.js"></script>
+    <script src = "lib/OBJLoader.js"></script>
+    <script src = "lib/OrbitControls.js"></script>
+    <script src = "lib/dat.gui.js"></script>
+    <script src = "lib/slicing.js"></script>
+
+    <script src="js/item.js"></script>
+    <script src="js/shaders"></script>
+    <script src="js/materials.js"></script>
+</head>
+<input type="file" id="fileInput">
+<body>
+    <script>
+        // scene
+        var scene = new THREE.Scene();
+        var frontScene = new THREE.Scene();
+        var backScene = new THREE.Scene();
+        var planeScene = new THREE.Scene();
+
+        box = new THREE.PlaneGeometry(100,100);
+        boxMesh = new THREE.Mesh(box, ITEM.MATERIAL.cap);
+        var infill=0.0;
+        var layerthickness=0.0
+        boxMesh.rotation.x=3.1415926/2;
+        boxMesh.position.y=-1
+
+        planeScene.add(boxMesh);
+        
+        // add light, so that the model can be seen
+        // scene.add(new THREE.AmbientLight(0xffffff));
+
+
+
+        // perspective camera
+        var camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            10000.0
+        );
+        camera.position.set(0.0, 0.0, 5.0);
+        // camera.position.z = 5;
+        camera.lookAt(scene.position);
+        // console.log(scene.position)
+
+        // renderer
+        var renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.preserveDrawingBuffer = true;
+        document.body.appendChild(renderer.domElement);
+
+        // camera control, arcball style
+        var controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+        // clipping plane settings
+        var clippingPlaneHeight = 0.0;
+        
+        
+        var clippingPlane = [
+            new THREE.Plane(new THREE.Vector3(0.0, -1.0, 0.0), 0.0),
+            new THREE.Plane(new THREE.Vector3(0.0, 1.0, 0.0), 0.0)
+        ];
+
+        var guiControls = new function() {
+            this.clippingPlaneHeight = 0.0;
+        } ;
+
+        var infillControls = new function(){
+            this.infill=0.2;
+        }
+
+        var layerthicknessControls = new function(){
+            this.layerthickness=0.08
+        }
+
+        // GUI
+        var gui = new dat.GUI();
+        
+        // // this part of GUI controls the clipping plane's height
+        var heightController = gui.add(guiControls, 'clippingPlaneHeight', -1.0, 1.0, 0.01);
+        heightController.onChange(function(value) {
+            clippingPlaneHeight = value;
+            clippingPlane[0].constant = clippingPlaneHeight;
+            clippingPlane[1].constant = clippingPlaneHeight;
+        });
+
+        var infillController = gui.add(infillControls, 'infill', 0, 1, 0.01);
+        infillController.onChange(function(value){
+            this.infill=value;
+        });
+
+        var layerthicknessController = gui.add(layerthicknessControls, 'layerthickness', 0.01,1,0.01);
+        layerthicknessController.onChange(function(value){
+            this.layerthickness=value;
+        });
+
+        // set the material, so that not only the contour but the insides can also be seen
+        var geometry;
+        var material = new THREE.MeshBasicMaterial({
+            side: THREE.DoubleSide,
+            color: 0x123456, 
+        });
+
+        material.onBeforeCompile = function( shader ) {
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <output_fragment>',
+                `
+                vec3 backfaceColor = vec3( 0.4, 0.4, 0.4 );
+                gl_FragColor = ( gl_FrontFacing ) ? vec4( outgoingLight, diffuseColor.a ) : vec4( backfaceColor, opacity );
+                `
+        )};
+
+        // open a obj through file picker
+        var file;
+        var object;
+        var setMaterial = function ( node, material ) {
+			node.material = material;
+			if ( node.children ) {
+				for ( var i = 0; i < node.children.length; i++ ) {
+					setMaterial( node.children[i], material );
+				}
+			}
+		};
+
+        function crossProduct(a, b) {
+            return [
+                a[1] * b[2] - a[2] * b[1], // Cx
+                a[2] * b[0] - a[0] * b[2], // Cy
+                a[0] * b[1] - a[1] * b[0]  // Cz
+            ];
+        };
+
+        var fileOpenController = {open:function(){
+            var input = document.createElement('input');
+            input.type = 'file';      
+            input.onchange = e => {
+                file = e.target.files[0];
+                // console.log(file);
+                // if (object != null) disposeHierarchy(object, disposeNode);
+
+                // if scene isn't empty, clear it before selecting a new object
+                // Warning ! Memory Leak May Occur on Multiple Runs!
+                while(scene.children.length > 0){ 
+                    scene.remove(scene.children[0]); 
+                }
+                // load the selected file
+                var reader = new FileReader();
+                reader.readAsText(file);
+                reader.onload = readerEvent => {
+                    var result = readerEvent.target.result;
+                    //slicing(result, 0.08, 0.2);
+                    // camera.lookAt(scene.position);
+                    let stl = "";
+                    stl += ';Start;\n';
+                    //console.log(result);
+                    const lines = result.split('\n');
+                    const vertex = [];
+                    let i=0;
+                    while(i<lines.length)
+                    {
+                        const line_ = lines[i].split(" ");
+                        if(line_[0]=="v")
+                            vertex.push([parseFloat(line_[1]), parseFloat(line_[2]), parseFloat(line_[3])]);
+                        else if(line_[0]=="f")
+                            break;
+                        i++;
+                    }
+                    while(i<lines.length)
+                    {
+                        const line_ = lines[i].split(" ");
+                        if(line_[0]=="f")
+                        {
+                            const vertextmp=[];
+                            for(let count = 1;count<=3;count++)
+                            {
+                                const index = line_[count].split('/');
+                                vertextmp.push(index[0]);
+                            }
+
+                            let normtmp = crossProduct(vertex[parseInt(vertextmp[0])-1],vertex[parseInt(vertextmp[1])-1]);
+                            stl += `facet normal ${10 * normtmp[0]} ${10 * normtmp[1]} ${10 * normtmp[2]}\n`;
+                            stl += 'outer loop\n';
+                            for(let count = 0;count<3;count++)
+                            {
+                                stl+=`vertex ${10 * vertex[parseInt(vertextmp[count])-1][0]} ${10 * vertex[parseInt(vertextmp[count])-1][1]} ${10 * vertex[parseInt(vertextmp[count])-1][2]}\n`;
+                            }
+                            stl +='endloop\n';
+                            stl += 'endfacet\n';
+                        }
+                        i++;
+                    }
+                    stl+='endsolid\n';
+                    console.log(stl);
+                    slicing(stl, 0.08, 0.2);
+                    var objLoader = new THREE.OBJLoader();
+                    object = objLoader.parse(result);
+                    //console.log(object);
+                    var back = object.clone();
+                    setMaterial(back, ITEM.MATERIAL.backStencil);
+                    backScene.add(back);
+                    
+                    var front = object.clone();
+                    setMaterial(front, ITEM.MATERIAL.frontStencil);
+                    frontScene.add(front);
+                    
+                    setMaterial(object, ITEM.MATERIAL.clipping);
+                    scene.add(object);
+                    
+                };
+            }
+            input.click();
+        }};
+        gui.add(fileOpenController, 'open');
+
+        // control to save the current canvas
+        var getImageData = false;
+        var saveControl = {save:function(){
+            if (getImageData == false) getImageData = true;
+        }};
+        gui.add(saveControl, 'save');
+
+    
+
+        // // load model (obj only for now)
+        // var objLoader = new THREE.OBJLoader();
+        
+        
+
+        // // actually loads the model
+        // if (file != null) {
+        //     console.log(file);
+        //     var filename = file.name;
+        //     objLoader.load(
+        //         filename, 
+        //         function (object)  {
+        //             object.traverse(function(o) {
+        //                 if (o.isMesh) {
+        //                     geometry = o.geometry;
+        //                     o.material = material;
+        //                 }
+        //             });
+        //             // console.log(geometry);
+        //             scene.add(object);
+        //         },
+        //         function (error) {
+        //             console.log(error);
+        //         }
+        //     );
+        //     var object = new THREE.Group();
+        //     scene.add(object);
+        // }
+
+        // enable clipping
+        // document.getElementById('fileInput').addEventListener('change', function(event) {
+        //     const file = event.target.files[0];
+        //     if (file) {
+        //         const reader = new FileReader();
+        //         reader.onload = function(e) {
+        //             //const triangles = fileToTriangles(e.target.result);
+        //             //console.log(triangles); // 处理三角形或进行下一步操作
+        //             let slice = slicing(e.target.result, 0.08, 0.2);
+        //         };
+        //         reader.readAsText(file);
+        //     }
+        // });
+        renderer.autoClear=false;
+        render();
+
+        function render() {
+            ITEM.MATERIAL.frontStencil.uniforms.clippingPlaneDistance.value = clippingPlaneHeight;
+            ITEM.MATERIAL.backStencil.uniforms.clippingPlaneDistance.value = clippingPlaneHeight;
+            ITEM.MATERIAL.clipping.uniforms.clippingPlaneDistance.value = clippingPlaneHeight;
+
+            requestAnimationFrame(render);
+            var gl = renderer.context;
+            renderer.state.setStencilTest( true );
+
+            renderer.state.setStencilFunc( gl.ALWAYS, 1, 0xff );
+			renderer.state.setStencilOp( gl.ZERO, gl.ZERO, gl.ZERO );
+			renderer.render( scene, camera );
+
+            renderer.state.setStencilFunc( gl.ALWAYS, 1, 0xff );
+			renderer.state.setStencilOp( gl.KEEP, gl.KEEP, gl.INCR );
+			renderer.render( backScene, camera );
+			
+			renderer.state.setStencilFunc( gl.ALWAYS, 1, 0xff );
+			renderer.state.setStencilOp( gl.KEEP, gl.KEEP, gl.DECR );
+			renderer.render( frontScene, camera );
+            
+			renderer.state.setStencilFunc( gl.EQUAL, 1, 0xff );
+			renderer.state.setStencilOp( gl.KEEP, gl.KEEP, gl.KEEP );
+			renderer.render( planeScene, camera );
+			renderer.state.setStencilTest( false );
+            //renderer.render(scene, camera);   
+
+
+
+            // when "save" clicked, save the canvas, then download the jpeg
+            if (getImageData == true) {
+                var strMime = "image/jpeg";
+                var strDownloadMime = "image/octet-stream";
+
+                var imgData = renderer.domElement.toDataURL(strMime);
+                saveFile(imgData.replace(strMime, strDownloadMime), "test.jpg");
+
+                console.log(imgData);
+                getImageData = false;
+            }
+        };
+
+        // save file
+        var saveFile = function (strData, filename) {
+            var link = document.createElement('a');
+            if (typeof link.download === 'string') {
+                document.body.appendChild(link); //Firefox requires the link to be in the body
+                link.download = filename;
+                link.href = strData;
+                link.click();
+                document.body.removeChild(link); //remove the link when done
+            } else {
+                location.replace(uri);
+            }
+        }
+
+        // function disposeNode (object){
+        //     object.traverse(function(node){
+        //         if (node.isMesh) {
+        //             if (node.geometry){
+        //                 node.geometry.dispose ();
+        //             }
+
+        //             if (node.material){
+        //                 if (node.material instanceof THREE.MeshFaceMaterial){
+        //                     $.each (node.material.materials, function (idx, mtrl){
+        //                         if (mtrl.map)               mtrl.map.dispose ();
+        //                         if (mtrl.lightMap)          mtrl.lightMap.dispose ();
+        //                         if (mtrl.bumpMap)           mtrl.bumpMap.dispose ();
+        //                         if (mtrl.normalMap)         mtrl.normalMap.dispose ();
+        //                         if (mtrl.specularMap)       mtrl.specularMap.dispose ();
+        //                         if (mtrl.envMap)            mtrl.envMap.dispose ();
+        //                         if (mtrl.alphaMap)          mtrl.alphaMap.dispose();
+        //                         if (mtrl.aoMap)             mtrl.aoMap.dispose();
+        //                         if (mtrl.displacementMap)   mtrl.displacementMap.dispose();
+        //                         if (mtrl.emissiveMap)       mtrl.emissiveMap.dispose();
+        //                         if (mtrl.gradientMap)       mtrl.gradientMap.dispose();
+        //                         if (mtrl.metalnessMap)      mtrl.metalnessMap.dispose();
+        //                         if (mtrl.roughnessMap)      mtrl.roughnessMap.dispose();
+
+        //                         mtrl.dispose ();    // disposes any programs associated with the material
+        //                     });
+        //                 } else {
+        //                     if (node.material.map)              node.material.map.dispose ();
+        //                     if (node.material.lightMap)         node.material.lightMap.dispose ();
+        //                     if (node.material.bumpMap)          node.material.bumpMap.dispose ();
+        //                     if (node.material.normalMap)        node.material.normalMap.dispose ();
+        //                     if (node.material.specularMap)      node.material.specularMap.dispose ();
+        //                     if (node.material.envMap)           node.material.envMap.dispose ();
+        //                     if (node.material.alphaMap)         node.material.alphaMap.dispose();
+        //                     if (node.material.aoMap)            node.material.aoMap.dispose();
+        //                     if (node.material.displacementMap)  node.material.displacementMap.dispose();
+        //                     if (node.material.emissiveMap)      node.material.emissiveMap.dispose();
+        //                     if (node.material.gradientMap)      node.material.gradientMap.dispose();
+        //                     if (node.material.metalnessMap)     node.material.metalnessMap.dispose();
+        //                     if (node.material.roughnessMap)     node.material.roughnessMap.dispose();
+
+        //                     node.material.dispose ();   // disposes any programs associated with the material
+        //                 }
+        //             }
+        //         }
+        //     });
+        // }   // disposeNode
+
+        // function disposeHierarchy (node, callback){
+        //     for (var i = node.children.length - 1; i >= 0; i--) {
+        //         var child = node.children[i];
+        //         disposeHierarchy (child, callback);
+        //         callback (child);
+        //     }
+        // }
+    </script>
+
+    <canvas width = "1707" height="803" style="width: 1707px; height: 803px;">
+</body>
+
+</html>
