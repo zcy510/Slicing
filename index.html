@@ -38,8 +38,8 @@
 
         box = new THREE.PlaneGeometry(100,100);
         boxMesh = new THREE.Mesh(box, ITEM.MATERIAL.cap);
-        var infill=0.0;
-        var layerthickness=0.0
+        var infill=0.3;
+        var layerthickness=0.08; 
         boxMesh.rotation.x=3.1415926/2;
         boxMesh.position.y=-1
 
@@ -105,12 +105,12 @@
 
         var infillController = gui.add(infillControls, 'infill', 0, 1, 0.01);
         infillController.onChange(function(value){
-            this.infill=value;
+            infill=value;
         });
 
         var layerthicknessController = gui.add(layerthicknessControls, 'layerthickness', 0.01,1,0.01);
         layerthicknessController.onChange(function(value){
-            this.layerthickness=value;
+            layerthickness=value;
         });
 
         // set the material, so that not only the contour but the insides can also be seen
@@ -209,8 +209,8 @@
                         i++;
                     }
                     stl+='endsolid\n';
-                    console.log(stl);
-                    slicing(stl, 0.08, 0.2);
+                    //console.log(stl);
+                    slicing(stl, layerthickness, infill);
                     var objLoader = new THREE.OBJLoader();
                     object = objLoader.parse(result);
                     //console.log(object);
