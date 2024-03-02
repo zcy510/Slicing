@@ -47,11 +47,7 @@ ITEM.SHADER = {
 			else\
 			{\
 				vec3 color1 = color;\
-				float rest = mod(modelPosition.y*10.0, 2.0);\
-				if(rest - 1.0 < 0.001)\
-					color1.g = 1.0;\
-				else\
-					color1.b = 1.0;\
+				color1.b = 1.0;\
 				gl_FragColor =  vec4( color1 * shade, 1.0 );\
 			}\
 		}',
