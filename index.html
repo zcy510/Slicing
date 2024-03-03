@@ -17,6 +17,8 @@
             height: 100%;
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src = "lib/three83dev.js"></script>
     <script src = "lib/OBJLoader.js"></script>
     <script src = "lib/OrbitControls.js"></script>
@@ -27,9 +29,15 @@
     <script src="js/shaders"></script>
     <script src="js/materials.js"></script>
 </head>
-<input type="file" id="fileInput">
 <body>
     <script>
+
+        var imageDataArray = [];
+        var isdownload = true;
+        
+        var zip = new JSZip();
+        var imgFolder = zip.folder("images");
+        
         // scene
         var scene = new THREE.Scene();
         var frontScene = new THREE.Scene();
@@ -41,15 +49,7 @@
         var infill=0.3;
         var layerthickness=0.08; 
         boxMesh.rotation.x=3.1415926/2;
-        boxMesh.position.y=-1
-
-        planeScene.add(boxMesh);
         
-        // add light, so that the model can be seen
-        // scene.add(new THREE.AmbientLight(0xffffff));
-
-
-
         // perspective camera
         var camera = new THREE.PerspectiveCamera(
             75,
@@ -57,13 +57,6 @@
             0.1,
             10000.0
         );
-
-        // orthographic camera
-        // var camera = new THREE.OrthographicCamera(-1, 1, -1, 1, 0.1, 1000);
-        // camera.zoom = 0.2;
-        // camera.position.z = 5;
-        camera.lookAt(scene.position);
-        // console.log(scene.position)
 
         // renderer
         var renderer = new THREE.WebGLRenderer();
@@ -83,32 +76,10 @@
             new THREE.Plane(new THREE.Vector3(0.0, 1.0, 0.0), 0.0)
         ];
 
-        var guiControls = new function() {
-            this.clippingPlaneHeight = 0.0;
-        } ;
-
-        var infillControls = new function(){
-            this.infill=0.2;
-        }
-
-        var layerthicknessControls = new function(){
-            this.layerthickness=0.08
-        }
+        
 
         // GUI
         var gui = new dat.GUI();
-        
-        // // this part of GUI controls the clipping plane's height
-        
-
-        // material.onBeforeCompile = function( shader ) {
-        //     shader.fragmentShader = shader.fragmentShader.replace(
-        //         '#include <output_fragment>',
-        //         `
-        //         vec3 backfaceColor = vec3( 0.4, 0.4, 0.4 );
-        //         gl_FragColor = ( gl_FrontFacing ) ? vec4( outgoingLight, diffuseColor.a ) : vec4( backfaceColor, opacity );
-        //         `
-        // )};
 
         // open a obj through file picker
         var file;
@@ -130,29 +101,34 @@
             ];
         };
 
+        var step;
+        var maxY = -Infinity;
+        var minY = Infinity;
+
         var fileOpenController = {open:function(){
             var input = document.createElement('input');
             input.type = 'file';      
             input.onchange = e => {
                 file = e.target.files[0];
-                // console.log(file);
-                // if (object != null) disposeHierarchy(object, disposeNode);
-
-                // if scene isn't empty, clear it before selecting a new object
-                // Warning ! Memory Leak May Occur on Multiple Runs!
                 while(scene.children.length > 0){ 
                     scene.remove(scene.children[0]); 
+                }
+                while(planeScene.children.length > 0){ 
+                    planeScene.remove(planeScene.children[0]); 
+                }
+                while(backScene.children.length > 0){ 
+                    backScene.remove(backScene.children[0]); 
+                }
+                while(frontScene.children.length > 0){ 
+                    frontScene.remove(frontScene.children[0]); 
                 }
                 // load the selected file
                 var reader = new FileReader();
                 reader.readAsText(file);
                 reader.onload = readerEvent => {
                     var result = readerEvent.target.result;
-                    //slicing(result, 0.08, 0.2);
-                    // camera.lookAt(scene.position);
                     let stl = "";
                     stl += ';Start;\n';
-                    //console.log(result);
                     const lines = result.split('\n');
                     const vertex = [];
                     let i=0;
@@ -190,7 +166,6 @@
                         i++;
                     }
                     stl+='endsolid\n';
-                    //console.log(stl);
                     //slicing(stl, layerthickness, infill);
                     var objLoader = new THREE.OBJLoader();
                     object = objLoader.parse(result);
@@ -204,8 +179,8 @@
                     frontScene.add(front);
                     
                     setMaterial(object, ITEM.MATERIAL.clipping);
-                    var maxY = -Infinity;
-                    var minY = Infinity;
+                    maxY = -Infinity;
+                    minY = Infinity;
                     object.traverse(function(child) {
                       if (child instanceof THREE.Mesh) {
                         child.geometry.computeBoundingBox();
@@ -216,49 +191,86 @@
                     });
                     console.log("最大Y: " + maxY);
                     console.log("最小Y: " + minY);
+                    boxMesh.position.y=minY-0.03;
+                    clippingPlaneHeight = minY-0.03
+                    step = (maxY-minY)/10.0;
+                    planeScene.add(boxMesh);
                     scene.add(object);
 
-                    var heightController = gui.add(guiControls, 'clippingPlaneHeight', minY-1.0, maxY+1.0, 0.01);
-                    heightController.onChange(function(value) {
-                        clippingPlaneHeight = value;
-                        clippingPlane[0].constant = clippingPlaneHeight;
-                        clippingPlane[1].constant = clippingPlaneHeight;
-                        boxMesh.position.y = value;
-                    });
+                    imageDataArray.length = 0;
+                    isdownload = true;
+
+                    // var guiControls = new function() {
+                    //     this.clippingPlaneHeight = minY-0.03;
+                    //     boxMesh.position.y = minY-0.03;
+                    // } ;
+
+                    // var infillControls = new function(){
+                    //     this.infill=0.2;
+                    // }
+                
+                    // var layerthicknessControls = new function(){
+                    //     this.layerthickness=0.08
+                    // }
+
+                    // var heightController = gui.add(guiControls, 'clippingPlaneHeight', minY-5.0, maxY+5.0, 0.01);
+                    // heightController.onChange(function(value) {
+                    //     clippingPlaneHeight = value;
+                    //     clippingPlane[0].constant = clippingPlaneHeight;
+                    //     clippingPlane[1].constant = clippingPlaneHeight;
+                    //     boxMesh.position.y = value;
+                    // });
             
-                    var infillController = gui.add(infillControls, 'infill', 0, 1, 0.01);
-                    infillController.onChange(function(value){
-                        infill=value;
-                        camera.near = infill;
-                        camera.updateProjectionMatrix();
-                    });
+                    // var infillController = gui.add(infillControls, 'infill', 0, 1, 0.01);
+                    // infillController.onChange(function(value){
+                    //     infill=value;
+                    // });
             
-                    var layerthicknessController = gui.add(layerthicknessControls, 'layerthickness', 0.01,1,0.01);
-                    layerthicknessController.onChange(function(value){
-                        layerthickness=value;
-                    });
+                    // var layerthicknessController = gui.add(layerthicknessControls, 'layerthickness', 0.01,1,0.01);
+                    // layerthicknessController.onChange(function(value){
+                    //     layerthickness=value;
+                    // });
 
                     camera.position.set(0.0, minY-(maxY-minY), 0.0);
-
-        // set the material, so that not only the contour but the insides can also be seen
-        var geometry;
-        var material = new THREE.MeshBasicMaterial({
-            side: THREE.DoubleSide,
-            color: 0x123456, 
-        });
-                    
+                    camera.lookAt(scene.position); 
+                    renderer.clear();
+                    //renderer.state.setStencilTest( true );
+                    renderer.clearStencil();
                 };
             }
             input.click();
         }};
         gui.add(fileOpenController, 'open');
+        
+        var strMime = "image/jpg";
 
         // control to save the current canvas
         var getImageData = false;
-        var saveControl = {save:function(){
-            if (getImageData == false) getImageData = true;
+        var saveControl = {slicing:function(){
+            //if (getImageData == false) getImageData = true;
+            var intervalID = setInterval(function() {
+                clippingPlaneHeight +=step;
+                getImageData = true;
+                if(clippingPlaneHeight>maxY && isdownload)
+                {
+                    isdownload = false;
+                    imageDataArray.forEach(function(dataURL, index) {
+                        var fileName = "image" + index + ".jpg";
+                        var base64Data = dataURL.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+                        imgFolder.file(fileName, base64Data, {base64: true});
+                    });
+
+                    zip.generateAsync({type:"blob"}).then(function(content) {
+                        saveAs(content, "images.zip");
+                    });
+                    clearInterval(intervalID);
+                }
+                clippingPlane[0].constant = clippingPlaneHeight;
+                clippingPlane[1].constant = clippingPlaneHeight;
+                boxMesh.position.y = clippingPlaneHeight;
+                }, 1000);
         }};
-        gui.add(saveControl, 'save');
+        gui.add(saveControl, 'slicing');
 
         renderer.autoClear=false;
         render();
@@ -288,19 +300,16 @@
 			renderer.state.setStencilOp( gl.KEEP, gl.KEEP, gl.KEEP );
 			renderer.render( planeScene, camera );
 			renderer.state.setStencilTest( false );
-            renderer.render(scene, camera);   
-
-
+            renderer.render(scene, camera);
 
             // when "save" clicked, save the canvas, then download the jpeg
             if (getImageData == true) {
-                var strMime = "image/jpeg";
+                var strMime = "image/jpg";
                 var strDownloadMime = "image/octet-stream";
 
                 var imgData = renderer.domElement.toDataURL(strMime);
-                saveFile(imgData.replace(strMime, strDownloadMime), "test.jpg");
-
-                console.log(imgData);
+                imageDataArray.push(imgData);
+                //saveFile(imgData.replace(strMime, strDownloadMime), "test.jpg");
                 getImageData = false;
             }
         };
